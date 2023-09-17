@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "baseUrl": "src"
+  },
+  "include": ["src"]
+}
+i'm not sure if we must define the paths. but after write baseUrl to src i can import all folder under src folder like this
+
+import { Home } from "pages";
+import { formatDate } from "utils";
+import { Navbar } from "components";
+don't forget to restart your terminal after change the tsconfig.json
+
+
+
+We can avoid the "../../../../../" its looking odd and not readable too.
+
+So Typescript config file have answer for the same. Just specify the baseUrl, config will take care of your relative path.
+
+way to config: tsconfig.json file add the below properties.
+
+"baseUrl": "src",
+    "paths": {
+      "@app/*": [ "app/*" ],
+      "@env/*": [ "environments/*" ]
+    }
+So Finally it will look like below
+
+import { Something } from "@app/src/[browser/server/universal]/...";
