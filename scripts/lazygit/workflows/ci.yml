@@ -1,0 +1,170 @@
+name: Continuous Integration
+
+env:
+  GO_VERSION: 1.20
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  unit-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        include:
+          - os: ubuntu-latest
+            cache_path: ~/.cache/go-build
+          - os: windows-latest
+            cache_path: ~\AppData\Local\go-build
+    name: ci - ${{matrix.os}}
+    runs-on: ${{matrix.os}}
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Test code
+        # we're passing -short so that we skip the integration tests, which will be run in parallel below
+        run: |
+          go test ./... -short
+  integration-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        git-version:
+          - 2.20.0 # oldest supported version
+          - 2.22.5
+          - 2.23.0
+          - 2.25.1
+          - 2.30.8
+          - latest # We rely on github to have the latest version installed on their VMs
+    runs-on: ubuntu-latest
+    name: "Integration Tests - git ${{matrix.git-version}}"
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Restore Git cache
+        if: matrix.git-version != 'latest'
+        id: cache-git-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: ~/git-${{matrix.git-version}}
+          key: ${{runner.os}}-git-${{matrix.git-version}}
+      - name: Build Git ${{matrix.git-version}}
+        if: steps.cache-git-restore.outputs.cache-hit != 'true' && matrix.git-version != 'latest'
+        run: >
+          sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential ca-certificates curl gettext libexpat1-dev libssl-dev libz-dev openssl
+          && curl -sL "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${{matrix.git-version}}.tar.xz" -o - | tar xJ -C "$HOME"
+          && cd "$HOME/git-${{matrix.git-version}}"
+          && ./configure
+          && make -j
+      - name: Install Git ${{matrix.git-version}}
+        if: matrix.git-version != 'latest'
+        run: sudo make -C "$HOME/git-${{matrix.git-version}}" -j install
+      - name: Save Git cache
+        if: steps.cache-git-restore.outputs.cache-hit != 'true' && matrix.git-version != 'latest'
+        uses: actions/cache/save@v3
+        with:
+          path: ~/git-${{matrix.git-version}}
+          key: ${{runner.os}}-git-${{matrix.git-version}}
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Print git version
+        run: git --version
+      - name: Test code
+        run: |
+          ./scripts/run_integration_tests.sh
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+      GOARCH: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Build linux binary
+        run: |
+          GOOS=linux go build
+      - name: Build windows binary
+        run: |
+          GOOS=windows go build
+      - name: Build darwin binary
+        run: |
+          GOOS=darwin go build
+      - name: Build integration test binary
+        run: |
+          GOOS=linux go build cmd/integration_test/main.go
+      - name: Build integration test injector
+        run: |
+          GOOS=linux go build pkg/integration/clients/injector/main.go
+  check-codebase:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+      GOARCH: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Check Cheatsheet
+        run: |
+          go run scripts/cheatsheet/main.go check
+      - name: Check Vendor Directory
+        # ensure our vendor directory matches up with our go modules
+        run: |
+          go mod vendor && git diff --exit-code || (echo "Unexpected change to vendor directory. Run 'go mod vendor' locally and commit the changes" && exit 1)
+      - name: Check Integration Test List
+        # ensure our integration test list is up to date
+        run: |
+          go generate pkg/integration/tests/tests.go && git diff --exit-code || (echo "Integration test list not up to date. Run 'go generate pkg/integration/tests/tests.go' locally and commit the changes" && exit 1)
+        shell: bash # needed so that we get "-o pipefail"
+      - name: Check Filenames
+        run: scripts/check_filenames.sh
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3.7.0
+        with:
+          version: latest
+      - name: errors
+        run: golangci-lint run
+        if: ${{ failure() }}
+  check-required-label:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/master'
+    steps:
+      - uses: mheap/github-action-required-labels@v5
+        with:
+          mode: exactly
+          count: 1
+          labels: "ignore-for-release, feature, enhancement, bug, maintenance, docs, i18n"
