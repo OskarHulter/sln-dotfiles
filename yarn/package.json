@@ -1,1 +1,47 @@
+{
+  "name": "hejsan",
+  "dependencies": {
+    "typescript": "^3.8.0"
+  },
+  "scripts": {
+    "g:tsc": "cd $INIT_CWD && tsc"
+  }
+}
 
+Then, from any workspace that contains its own tsconfig.json, you'll be able to call TypeScript:
+,
+{
+  "scripts": {
+    "build": "yarn g:tsc"
+  }
+}
+
+or if you only want to use tsc from the root workspace:
+,
+{
+  "scripts": {
+    "build": "run -T tsc"
+  }
+}
+
+// Should you want to run a script in the base of your project:
+,
+{
+  "scripts": {
+    "build": "node ${PROJECT_CWD}/scripts/update-contributors.js"
+  }
+}
+{
+  "packageManager": "yarn@3.2.3+sha224.953c8233f7a92884eee2de69a1b92d1f2ec1655e66d08071ba9a02fa"
+}
+corepack enable
+corepack prepare yarn@stable --activate 
+yarn set version latest
+.gitignore
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
